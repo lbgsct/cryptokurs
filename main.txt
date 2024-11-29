@@ -1,0 +1,52 @@
+package main
+
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"fmt"
+	"math/big"
+)
+
+func main() {
+	// генерация параметров Диффи-Хеллмана
+	prime, _ := diffiehellman.GeneratePrime(2048)
+	g := big.NewInt(2)
+
+	// секретные ключи для Алисы и Боба диффи хелмана
+	alicePrivateKey, _ := rand.Int(rand.Reader, prime)
+	bobPrivateKey, _ := rand.Int(rand.Reader, prime)
+
+	// публичные ключи диффи хелмана
+	alicePublicKey := diffiehellman.GeneratePublicKey(g, alicePrivateKey, prime)
+	bobPublicKey := diffiehellman.GeneratePublicKey(g, bobPrivateKey, prime)
+
+	// общий ключ для локи
+	aliceSharedKey := diffiehellman.GenerateSharedKey(alicePrivateKey, bobPublicKey, prime)
+	bobSharedKey := diffiehellman.GenerateSharedKey(bobPrivateKey, alicePublicKey, prime)
+
+	// общий ключ для LOKI97 хеширую убрать
+	aliceKey := sha256.Sum256(aliceSharedKey.Bytes())
+	bobKey := sha256.Sum256(bobSharedKey.Bytes())
+
+	// использую 128 бит т.к. определила такой размер ключа сама
+	aliceKeyForLoki := aliceKey[:16]
+	bobKeyForLoki := bobKey[:16]
+
+	// сообщение
+	message := "Hello, Boblknmgtresiuhpe'[rthjbatow56[gtr-0sfkrjtgnkhjgf;kg!"
+	messageBytes := []byte(message)
+
+	shifralice := loki97.MessageBlocks(messageBytes, aliceKeyForLoki)
+
+	res1 := loki97.Decrypted(shifralice, aliceKeyForLoki)
+
+	shifrbob := loki97.MessageBlocks(messageBytes, bobKeyForLoki)
+	res2 := loki97.Decrypted(shifrbob, bobKeyForLoki)
+
+	// Вывод результатов
+	fmt.Println("Original Message:", message)
+	fmt.Println("Encrypted Message for Alice:", shifralice)
+	fmt.Println("Encrypted Message for Bob:", shifrbob)
+	fmt.Println("Decrypted Message for Alice:", res1)
+	fmt.Println("Decrypted Message2 for Bob:", res2)
+}
