@@ -1,20 +1,23 @@
 package main
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
 )
 
+// Предполагается, что остальные части вашего кода (CryptoSymmetricContext, Loki97, RC5, CipherMode, PaddingMode и т.д.) находятся в тех же файлах и правильно реализованы.
+
 func main() {
-	// Флаги для выбора алгоритма и настроек
+	// Определение флагов командной строки
 	algorithm := flag.String("algorithm", "loki97", "Choose encryption algorithm: loki97 or rc5")
 	mode := flag.String("mode", "ECB", "Encryption mode: ECB, CBC, CFB, OFB, CTR, PCBC, RandomDelta")
 	padding := flag.String("padding", "PKCS7", "Padding mode: Zeros, ANSIX923, PKCS7, ISO10126")
 	key := flag.String("key", "1234567890abcdef", "Encryption key (16 bytes for LOKI97, 16/24/32 bytes for RC5)")
 	iv := flag.String("iv", "", "Initialization vector (IV) in hex, required for CBC, CFB, OFB, CTR modes")
 	input := flag.String("input", "input.txt", "Path to input file")
-	output := flag.String("output", "output.txt", "Path to output file")
+	output := flag.String("output", "output.dat", "Path to output file")
 	decrypt := flag.Bool("decrypt", false, "Set to true for decryption")
 	flag.Parse()
 
@@ -24,7 +27,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Парсим режим шифрования
+	// Парсинг режима шифрования
 	var cipherMode CipherMode
 	switch *mode {
 	case "ECB":
@@ -46,7 +49,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Парсим режим набивки
+	// Парсинг режима набивки
 	var paddingMode PaddingMode
 	switch *padding {
 	case "Zeros":
@@ -62,77 +65,112 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Парсим IV
+	// Парсинг IV, если требуется
 	var ivBytes []byte
 	if cipherMode != ECB && cipherMode != RandomDelta {
 		if len(*iv) == 0 {
 			fmt.Println("IV is required for selected encryption mode.")
 			os.Exit(1)
 		}
-		ivBytes = make([]byte, 16)
-		copy(ivBytes, *iv)
+		// Предполагается, что IV предоставляется в формате hex
+		var err error
+		ivBytes, err = hex.DecodeString(*iv)
+		if err != nil {
+			fmt.Println("Invalid IV format. Provide IV as a hex string.")
+			os.Exit(1)
+		}
+		// Проверка длины IV
+		expectedIVSize := 16 // Для 128-битных блоков
+		if len(ivBytes) != expectedIVSize {
+			fmt.Printf("Invalid IV size. Expected %d bytes, got %d bytes.\n", expectedIVSize, len(ivBytes))
+			os.Exit(1)
+		}
 	}
 
-	// Выбираем алгоритм
+	// Выбор алгоритма
 	var cipher SymmetricAlgorithm
 	switch *algorithm {
 	case "loki97":
 		cipher = &Loki97{}
 	case "rc5":
-		//cipher = &RC5{} // Допустим, вы реализовали RC5 как другой SymmetricAlgorithm
+		cipher = NewRC5()
 	default:
 		fmt.Println("Invalid algorithm. Choose 'loki97' or 'rc5'.")
 		os.Exit(1)
 	}
 
-	// Устанавливаем ключ
+	// Установка ключа
 	if err := cipher.SetKey([]byte(*key)); err != nil {
 		fmt.Printf("Failed to set key: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Создаем контекст
+	// Определение размера блока
+	var blockSize int
+	switch *algorithm {
+	case "loki97":
+		blockSize = 16 // 128 бит
+	case "rc5":
+		rc5, ok := cipher.(*RC5)
+		if !ok {
+			fmt.Println("Failed to assert RC5Cipher type")
+			os.Exit(1)
+		}
+		blockSize = int(rc5.w) / 4 // Для w=32 -> 8 байт, для w=64 -> 16 байт
+	default:
+		fmt.Println("Invalid algorithm.")
+		os.Exit(1)
+	}
+
+	// Создание контекста
 	context, err := NewCryptoSymmetricContext(
 		[]byte(*key),
 		cipher,
 		cipherMode,
 		paddingMode,
 		ivBytes,
-		16, // Размер блока (например, 16 байт для LOKI97 и RC5)
+		blockSize,
 	)
 	if err != nil {
 		fmt.Printf("Failed to create context: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Читаем входной файл
+	// Чтение входного файла
 	inputData, err := os.ReadFile(*input)
 	if err != nil {
 		fmt.Printf("Failed to read input file: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Выполняем шифрование или дешифрование
-	var outputData []byte
+	// Выполнение шифрования или дешифрования асинхронно
 	if *decrypt {
-		outputData, err = context.Decrypt(inputData)
-		if err != nil {
+		decryptedChan, errChan := context.DecryptAsync(inputData)
+		select {
+		case decryptedData := <-decryptedChan:
+			// Запись расшифрованных данных в выходной файл
+			if err := os.WriteFile(*output, decryptedData, 0644); err != nil {
+				fmt.Printf("Failed to write output file: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("Decryption completed successfully!")
+		case err := <-errChan:
 			fmt.Printf("Decryption failed: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		outputData, err = context.Encrypt(inputData)
-		if err != nil {
+		encryptedChan, errChan := context.EncryptAsync(inputData)
+		select {
+		case encryptedData := <-encryptedChan:
+			// Запись зашифрованных данных в выходной файл
+			if err := os.WriteFile(*output, encryptedData, 0644); err != nil {
+				fmt.Printf("Failed to write output file: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Println("Encryption completed successfully!")
+		case err := <-errChan:
 			fmt.Printf("Encryption failed: %v\n", err)
 			os.Exit(1)
 		}
 	}
-
-	// Записываем результат в файл
-	if err := os.WriteFile(*output, outputData, 0644); err != nil {
-		fmt.Printf("Failed to write output file: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Operation completed successfully!")
 }
