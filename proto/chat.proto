@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package chat;
+
+option go_package = "proto/chatpb;chatpb";
+
+// Определение сервиса ChatService
+service ChatService {
+    // Методы сервиса
+    rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
+    rpc CloseRoom(CloseRoomRequest) returns (CloseRoomResponse);
+    rpc JoinRoom(JoinRoomRequest) returns (JoinRoomResponse);
+    rpc LeaveRoom(LeaveRoomRequest) returns (LeaveRoomResponse);
+    rpc SendPublicKey(SendPublicKeyRequest) returns (SendPublicKeyResponse);
+    rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+    rpc ReceiveMessages(ReceiveMessagesRequest) returns (stream ReceiveMessagesResponse);
+}
+
+// Определения сообщений
+message CreateRoomRequest {
+    string algorithm = 1; // "loki97" или "rc5"
+}
+
+message CreateRoomResponse {
+    string room_id = 1;
+}
+
+message CloseRoomRequest {
+    string room_id = 1;
+}
+
+message CloseRoomResponse {
+    bool success = 1;
+}
+
+message JoinRoomRequest {
+    string room_id = 1;
+    string client_id = 2;
+}
+
+message JoinRoomResponse {
+    bool success = 1;
+    string error = 2; // Опционально: сообщение об ошибке
+}
+
+message LeaveRoomRequest {
+    string room_id = 1;
+    string client_id = 2;
+}
+
+message LeaveRoomResponse {
+    bool success = 1;
+    string error = 2; // Опционально: сообщение об ошибке
+}
+
+message SendPublicKeyRequest {
+    string room_id = 1;
+    string client_id = 2;
+    string public_key = 3; // Публичный ключ клиента в формате hex
+}
+
+message SendPublicKeyResponse {
+    bool success = 1;
+    string error = 2; // Опционально: сообщение об ошибке
+}
+
+message SendMessageRequest {
+    string room_id = 1;
+    string client_id = 2;
+    bytes encrypted_message = 3;
+}
+
+message SendMessageResponse {
+    bool success = 1;
+    string error = 2; // Опционально: сообщение об ошибке
+}
+
+message ReceiveMessagesRequest {
+    string room_id = 1;
+    string client_id = 2;
+}
+
+message ReceiveMessagesResponse {
+    bytes encrypted_message = 1;
+    string sender_id = 2;
+}
