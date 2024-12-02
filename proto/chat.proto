@@ -15,7 +15,12 @@ service ChatService {
     rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
     rpc ReceiveMessages(ReceiveMessagesRequest) returns (stream ReceiveMessagesResponse);
     rpc GetRoom(GetRoomRequest) returns (GetRoomResponse);
-    rpc GetPublicKeys(GetPublicKeysRequest) returns (GetPublicKeysResponse); // Добавляем этот метод
+    rpc GetPublicKeys(GetPublicKeysRequest) returns (GetPublicKeysResponse); // Метод для получения публичных ключей
+}
+
+message ClientPublicKey {
+    string client_id = 1;
+    string public_key = 2; // Публичный ключ клиента в формате hex
 }
 
 message GetPublicKeysRequest {
@@ -23,9 +28,15 @@ message GetPublicKeysRequest {
 }
 
 message GetPublicKeysResponse {
-    repeated string public_keys = 1; // Список публичных ключей, полученных от всех клиентов в комнате
+    repeated ClientPublicKey public_keys = 1; // Список публичных ключей всех клиентов в комнате
 }
 
+message CreateRoomRequest {
+    string algorithm = 1; // "loki97" или "rc5"
+    string mode = 2;      // "ECB", "CBC", "CFB", "OFB", "CTR", "RandomDelta"
+    string padding = 3;   // "Zeros", "ANSIX923", "PKCS7", "ISO10126"
+    string prime = 4;     // Простое число в формате hex
+}
 
 message CreateRoomResponse {
     string room_id = 1;
@@ -100,13 +111,5 @@ message GetRoomResponse {
     string algorithm = 1; // Алгоритм шифрования ("loki97" или "rc5")
     string mode = 2;      // Режим шифрования ("ECB", "CBC", "CFB", "OFB", "CTR", "RandomDelta")
     string padding = 3;   // Режим набивки ("Zeros", "ANSIX923", "PKCS7", "ISO10126")
-    string prime = 4;     // Простое число в формате hex
-}
-
-// Определения сообщений
-message CreateRoomRequest {
-    string algorithm = 1; // "loki97" или "rc5"
-    string mode = 2;      // "ECB", "CBC", "CFB", "OFB", "CTR", "RandomDelta"
-    string padding = 3;   // "Zeros", "ANSIX923", "PKCS7", "ISO10126"
     string prime = 4;     // Простое число в формате hex
 }

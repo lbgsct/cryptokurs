@@ -26,8 +26,6 @@ type SymmetricAlgorithm interface {
 	SetKey(key []byte) error
 	Encrypt(data []byte) ([]byte, error)
 	Decrypt(data []byte) ([]byte, error)
-	/*EncryptAsync(data []byte) (<-chan []byte, <-chan error)
-	DecryptAsync(data []byte) (<-chan []byte, <-chan error)*/
 }
 
 // Режимы шифрования
@@ -610,7 +608,7 @@ func (cstc *CryptoSymmetricContext) encryptOFB(data []byte) ([]byte, error) {
 	encrypted := make([]byte, len(data))
 	feedback := make([]byte, blockSize)
 	copy(feedback, cstc.iv)
-	fmt.Printf("Используемый IV: %x\n", cstc.iv)
+	//fmt.Printf("Используемый IV: %x\n", cstc.iv)
 	for i := 0; i < len(data); i += blockSize {
 		// Шифруем текущий `feedback`
 		outputBlock, err := cstc.cipher.Encrypt(feedback)
@@ -797,7 +795,7 @@ func (cstc *CryptoSymmetricContext) RemovePadding(data []byte) ([]byte, error) {
 	case PKCS7:
 		return removePKCS7Padding(data)
 	case ISO10126:
-		return removePKCS7Padding(data)
+		return removeISO10126Padding(data)
 	default:
 		return nil, errors.New("unsupported padding mode")
 	}
@@ -828,15 +826,23 @@ func removeANSIX923Padding(data []byte) ([]byte, error) {
 }
 
 func PKCS7Padding(data []byte, paddingLen int) []byte {
+	if paddingLen < 1 || paddingLen > 255 {
+		panic("paddingLen must be between 1 and 255")
+	}
 	padding := bytes.Repeat([]byte{byte(paddingLen)}, paddingLen)
 	return append(data, padding...)
 }
 
 func removePKCS7Padding(data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, errors.New("data is empty")
+	}
+
 	paddingLen := int(data[len(data)-1])
-	if paddingLen > len(data) {
+	if paddingLen == 0 || paddingLen > len(data) {
 		return nil, errors.New("invalid padding length")
 	}
+
 	for i := 1; i <= paddingLen; i++ {
 		if data[len(data)-i] != byte(paddingLen) {
 			return nil, errors.New("invalid PKCS7 padding")
@@ -846,12 +852,29 @@ func removePKCS7Padding(data []byte) ([]byte, error) {
 }
 
 func ISO10126Padding(data []byte, paddingLen int) ([]byte, error) {
+	if paddingLen < 1 || paddingLen > 255 {
+		return nil, errors.New("paddingLen must be between 1 and 255")
+	}
 	padding := make([]byte, paddingLen)
 	if _, err := rand.Read(padding[:paddingLen-1]); err != nil {
 		return nil, err
 	}
 	padding[paddingLen-1] = byte(paddingLen)
 	return append(data, padding...), nil
+}
+
+func removeISO10126Padding(data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, errors.New("data is empty")
+	}
+
+	paddingLen := int(data[len(data)-1])
+	if paddingLen == 0 || paddingLen > len(data) {
+		return nil, errors.New("invalid padding length")
+	}
+
+	// В ISO10126 остальные байты набивки случайны, поэтому проверяем только последний байт
+	return data[:len(data)-paddingLen], nil
 }
 
 // Реализация дополнительных методов шифрования и дешифрования для файлов с поддержкой асинхронности

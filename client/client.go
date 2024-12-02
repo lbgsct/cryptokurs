@@ -105,7 +105,6 @@ func main() {
 	privateKey, _ := algorithm.GeneratePrivateKey(prime)
 	publicKey := algorithm.GeneratePublicKey(generator, privateKey, prime)
 	publicKeyHex := hex.EncodeToString(publicKey.Bytes())
-	//fmt.Printf("Публичный ключ клиента %s: %s\n", clientID, publicKeyHex)
 
 	// Отправка публичного ключа на сервер
 	_, err = client.SendPublicKey(context.Background(), &chatpb.SendPublicKeyRequest{
@@ -116,46 +115,66 @@ func main() {
 	if err != nil {
 		log.Fatalf("Ошибка при отправке публичного ключа: %v", err)
 	}
-	fmt.Println("Публичный ключ отправлен. Ожидание других клиентов...")
+	//fmt.Println("Публичный ключ отправлен. Ожидание других клиентов...")
 
 	// Переменные для инициализации cipherContext
 	var cipherContextMutex sync.Mutex
 	var cipherContext *algorithm.CryptoSymmetricContext
-	var isCipherInitialized bool = false
 
-	// Ждем получения публичного ключа другого клиента
-	for !isCipherInitialized {
-		getKeysResp, err := client.GetRoom(context.Background(), &chatpb.GetRoomRequest{
-			RoomId: roomID,
-		})
-		if err != nil {
-			log.Printf("Ошибка при получении параметров комнаты: %v", err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		// Предполагается, что публичные ключи сохраняются в комнате после их отправки
-		// Необходимо добавить сюда проверку получения публичного ключа другого клиента
-		if len(getKeysResp.GetPrime()) > 0 { // Предположительно храним публичные ключи в Prime
-			otherPublicKeyHex := getKeysResp.GetPrime()
-			otherPublicKeyBytes, _ := hex.DecodeString(otherPublicKeyHex)
-			otherPublicKey := new(big.Int).SetBytes(otherPublicKeyBytes)
-
-			// Вычисляем общий секретный ключ
-			sharedKey := algorithm.GenerateSharedKey(privateKey, otherPublicKey, prime)
-			hashedSharedKey := algorithm.HashSharedKey(sharedKey)
-
-			fmt.Printf("Общий секретный ключ вычислен\n")
-
-			// Инициализируем cipherContext
-			initCipher(hashedSharedKey, &cipherContext, &cipherContextMutex, algorithmName, mode, padding)
-			isCipherInitialized = true
-		}
-		time.Sleep(2 * time.Second)
-	}
+	// Мапа для хранения публичных ключей других клиентов
+	otherPublicKeys := make(map[string]string)
+	var sharedKeyComputed bool = false
 
 	// Запуск горутины для получения сообщений
-	go receiveMessages(client, roomID, clientID, &cipherContext, &cipherContextMutex)
+	go receiveMessages(client, roomID, clientID, &cipherContext, &cipherContextMutex, &otherPublicKeys, &sharedKeyComputed, privateKey, prime, algorithmName, mode, padding)
+
+	// Дополнительный вызов GetPublicKeys после отправки публичного ключа
+	go func() {
+		for {
+			if sharedKeyComputed {
+				break
+			}
+
+			getKeysResp, err := client.GetPublicKeys(context.Background(), &chatpb.GetPublicKeysRequest{
+				RoomId: roomID,
+			})
+			if err != nil {
+				log.Printf("Ошибка при получении публичных ключей: %v", err)
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			//log.Printf("Полученные публичные ключи: %v", getKeysResp.GetPublicKeys())
+
+			for _, clientKey := range getKeysResp.GetPublicKeys() {
+				if clientKey.GetClientId() != clientID && clientKey.GetPublicKey() != "" {
+					otherPublicKeyHex := clientKey.GetPublicKey()
+					otherPublicKeyBytes, err := hex.DecodeString(otherPublicKeyHex)
+					if err != nil {
+						log.Printf("Ошибка декодирования публичного ключа: %v", err)
+						continue
+					}
+					otherPublicKey := new(big.Int).SetBytes(otherPublicKeyBytes)
+
+					// Вычисляем общий секретный ключ
+					sharedKey := algorithm.GenerateSharedKey(privateKey, otherPublicKey, prime)
+					hashedSharedKey := algorithm.HashSharedKey(sharedKey)
+
+					//fmt.Printf("Общий секретный ключ вычислен\n")
+
+					// Инициализируем cipherContext
+					initCipher(hashedSharedKey, &cipherContext, &cipherContextMutex, algorithmName, mode, padding)
+					sharedKeyComputed = true
+					break
+				}
+			}
+
+			if !sharedKeyComputed {
+				//	fmt.Println("Ожидание публичного ключа другого клиента...")
+				time.Sleep(2 * time.Second)
+			}
+		}
+	}()
 
 	// Цикл отправки сообщений
 	for {
@@ -167,9 +186,9 @@ func main() {
 		}
 
 		// Ждем инициализации контекста шифрования
-		for !isCipherInitialized {
+		if !sharedKeyComputed {
 			fmt.Println("Контекст шифрования не инициализирован. Подождите завершения обмена ключами.")
-			time.Sleep(1 * time.Second)
+			continue
 		}
 
 		cipherContextMutex.Lock()
@@ -192,7 +211,7 @@ func main() {
 	}
 }
 
-func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, cipherContext **algorithm.CryptoSymmetricContext, cipherContextMutex *sync.Mutex) {
+func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, cipherContext **algorithm.CryptoSymmetricContext, cipherContextMutex *sync.Mutex, otherPublicKeys *map[string]string, sharedKeyComputed *bool, privateKey *big.Int, prime *big.Int, algorithmName, mode, padding string) {
 	stream, err := client.ReceiveMessages(context.Background(), &chatpb.ReceiveMessagesRequest{
 		RoomId:   roomID,
 		ClientId: clientID,
@@ -207,19 +226,61 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 			log.Fatalf("Ошибка при получении сообщения из потока: %v", err)
 		}
 
-		cipherContextMutex.Lock()
-		if *cipherContext == nil {
+		if msg.GetType() == "public_key" {
+			senderID := msg.GetSenderId()
+			publicKeyHex := string(msg.GetEncryptedMessage())
+
+			if senderID == clientID {
+				// Игнорируем свои собственные публичные ключи
+				continue
+			}
+
+			// Сохраняем публичный ключ другого клиента
+			(*otherPublicKeys)[senderID] = publicKeyHex
+			fmt.Printf("Получен публичный ключ от клиента %s\n", senderID)
+
+			// Проверяем, получили ли мы все публичные ключи
+			// Для простоты предположим, что в комнате два клиента
+			if len(*otherPublicKeys) >= 1 && !(*sharedKeyComputed) {
+				otherPublicKeyBytes, err := hex.DecodeString(publicKeyHex)
+				if err != nil {
+					log.Printf("Ошибка декодирования публичного ключа: %v", err)
+					continue
+				}
+				otherPublicKey := new(big.Int).SetBytes(otherPublicKeyBytes)
+
+				// Вычисляем общий секретный ключ
+				sharedKey := algorithm.GenerateSharedKey(privateKey, otherPublicKey, prime)
+				hashedSharedKey := algorithm.HashSharedKey(sharedKey)
+
+				fmt.Printf("Общий секретный ключ вычислен\n")
+
+				// Инициализируем cipherContext
+				initCipher(hashedSharedKey, cipherContext, cipherContextMutex, algorithmName, mode, padding)
+				*sharedKeyComputed = true
+			}
+
+			continue
+		}
+
+		if msg.GetType() == "message" {
+			senderID := msg.GetSenderId()
+			encryptedMessage := msg.GetEncryptedMessage()
+
+			cipherContextMutex.Lock()
+			if *cipherContext == nil {
+				cipherContextMutex.Unlock()
+				fmt.Println("Контекст шифрования не инициализирован.")
+				continue
+			}
+			decryptedMessage, err := (*cipherContext).Decrypt(encryptedMessage)
 			cipherContextMutex.Unlock()
-			fmt.Println("Контекст шифрования не инициализирован.")
-			continue
+			if err != nil {
+				fmt.Printf("Ошибка при расшифровке сообщения: %v\n", err)
+				continue
+			}
+			fmt.Printf("Сообщение от %s: %s\n", senderID, string(decryptedMessage))
 		}
-		decryptedMessage, err := (*cipherContext).Decrypt(msg.GetEncryptedMessage())
-		cipherContextMutex.Unlock()
-		if err != nil {
-			fmt.Printf("Ошибка при расшифровке сообщения: %v\n", err)
-			continue
-		}
-		fmt.Printf("Сообщение от %s: %s\n", msg.GetSenderId(), string(decryptedMessage))
 	}
 }
 
