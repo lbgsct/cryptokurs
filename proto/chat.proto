@@ -5,8 +5,8 @@ package chat;
 option go_package = "proto/chatpb;chatpb";
 
 // Определение сервиса ChatService
+
 service ChatService {
-    // Методы сервиса
     rpc CreateRoom(CreateRoomRequest) returns (CreateRoomResponse);
     rpc CloseRoom(CloseRoomRequest) returns (CloseRoomResponse);
     rpc JoinRoom(JoinRoomRequest) returns (JoinRoomResponse);
@@ -14,12 +14,18 @@ service ChatService {
     rpc SendPublicKey(SendPublicKeyRequest) returns (SendPublicKeyResponse);
     rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
     rpc ReceiveMessages(ReceiveMessagesRequest) returns (stream ReceiveMessagesResponse);
+    rpc GetRoom(GetRoomRequest) returns (GetRoomResponse);
+    rpc GetPublicKeys(GetPublicKeysRequest) returns (GetPublicKeysResponse); // Добавляем этот метод
 }
 
-// Определения сообщений
-message CreateRoomRequest {
-    string algorithm = 1; // "loki97" или "rc5"
+message GetPublicKeysRequest {
+    string room_id = 1;
 }
+
+message GetPublicKeysResponse {
+    repeated string public_keys = 1; // Список публичных ключей, полученных от всех клиентов в комнате
+}
+
 
 message CreateRoomResponse {
     string room_id = 1;
@@ -81,6 +87,26 @@ message ReceiveMessagesRequest {
 }
 
 message ReceiveMessagesResponse {
-    bytes encrypted_message = 1;
+    string type = 1; // "public_key" или "message"
     string sender_id = 2;
+    bytes encrypted_message = 3;
+}
+
+message GetRoomRequest {
+    string room_id = 1; // ID комнаты для получения параметров
+}
+
+message GetRoomResponse {
+    string algorithm = 1; // Алгоритм шифрования ("loki97" или "rc5")
+    string mode = 2;      // Режим шифрования ("ECB", "CBC", "CFB", "OFB", "CTR", "RandomDelta")
+    string padding = 3;   // Режим набивки ("Zeros", "ANSIX923", "PKCS7", "ISO10126")
+    string prime = 4;     // Простое число в формате hex
+}
+
+// Определения сообщений
+message CreateRoomRequest {
+    string algorithm = 1; // "loki97" или "rc5"
+    string mode = 2;      // "ECB", "CBC", "CFB", "OFB", "CTR", "RandomDelta"
+    string padding = 3;   // "Zeros", "ANSIX923", "PKCS7", "ISO10126"
+    string prime = 4;     // Простое число в формате hex
 }

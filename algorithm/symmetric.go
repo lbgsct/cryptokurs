@@ -89,7 +89,7 @@ func NewCryptoSymmetricContext(
 		extraParams: make(map[string]interface{}),
 		blockSize:   blockSize,
 	}
-	fmt.Printf("IV установлен в контексте: %x\n", iv)
+	//fmt.Printf("IV установлен в контексте: %x\n", iv)
 
 	// Установка ключа в cipher
 	if err := cstc.cipher.SetKey(key); err != nil {

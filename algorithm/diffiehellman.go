@@ -6,24 +6,45 @@ import (
 	"math/big"
 )
 
-// генерирует большое простое число
+// Генерирует большое простое число
 func GeneratePrime(bits int) (*big.Int, error) {
-	return rand.Prime(rand.Reader, bits)
+	prime, err := rand.Prime(rand.Reader, bits)
+	if err != nil {
+		return nil, err
+	}
+	//	fmt.Printf("Сгенерированное простое число (prime): %s\n", prime.String())
+	return prime, nil
 }
 
-// публичный ключ g^privateKey mod p
+// Генерирует приватный ключ (случайное число меньше prime)
+func GeneratePrivateKey(prime *big.Int) (*big.Int, error) {
+	privateKey, err := rand.Int(rand.Reader, prime)
+	if err != nil {
+		return nil, err
+	}
+	//	fmt.Printf("Сгенерированный приватный ключ: %s\n", privateKey.String())
+	return privateKey, nil
+}
+
+// Публичный ключ g^privateKey mod p
 func GeneratePublicKey(g, privateKey, prime *big.Int) *big.Int {
-	return new(big.Int).Exp(g, privateKey, prime)
+	publicKey := new(big.Int).Exp(g, privateKey, prime)
+	//	fmt.Printf("Сгенерированный публичный ключ: %s\n", publicKey.String())
+	return publicKey
 }
 
-// общий ключ (otherPublicKey ^ privateKey) mod p
+// Общий ключ (otherPublicKey ^ privateKey) mod p
 func GenerateSharedKey(privateKey, otherPublicKey, prime *big.Int) *big.Int {
-	return new(big.Int).Exp(otherPublicKey, privateKey, prime)
+	sharedKey := new(big.Int).Exp(otherPublicKey, privateKey, prime)
+	//fmt.Printf("Сгенерированный общий ключ (sharedKey): %s\n", sharedKey.String())
+	return sharedKey
 }
 
-// хеширует общий ключ с помощью SHA-256
+// Хеширует общий ключ с помощью SHA-256
 func HashSharedKey(sharedKey *big.Int) []byte {
 	hash := sha256.New()
 	hash.Write(sharedKey.Bytes())
-	return hash.Sum(nil)
+	hashedKey := hash.Sum(nil)
+	//fmt.Printf("Хеш общего ключа (SHA-256): %x\n", hashedKey)
+	return hashedKey
 }

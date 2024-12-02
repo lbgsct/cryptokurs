@@ -26,6 +26,7 @@ const (
 	ChatService_SendPublicKey_FullMethodName   = "/chat.ChatService/SendPublicKey"
 	ChatService_SendMessage_FullMethodName     = "/chat.ChatService/SendMessage"
 	ChatService_ReceiveMessages_FullMethodName = "/chat.ChatService/ReceiveMessages"
+	ChatService_GetRoom_FullMethodName         = "/chat.ChatService/GetRoom"
 )
 
 // ChatServiceClient is the client API for ChatService service.
@@ -34,7 +35,6 @@ const (
 //
 // Определение сервиса ChatService
 type ChatServiceClient interface {
-	// Методы сервиса
 	CreateRoom(ctx context.Context, in *CreateRoomRequest, opts ...grpc.CallOption) (*CreateRoomResponse, error)
 	CloseRoom(ctx context.Context, in *CloseRoomRequest, opts ...grpc.CallOption) (*CloseRoomResponse, error)
 	JoinRoom(ctx context.Context, in *JoinRoomRequest, opts ...grpc.CallOption) (*JoinRoomResponse, error)
@@ -42,6 +42,7 @@ type ChatServiceClient interface {
 	SendPublicKey(ctx context.Context, in *SendPublicKeyRequest, opts ...grpc.CallOption) (*SendPublicKeyResponse, error)
 	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
 	ReceiveMessages(ctx context.Context, in *ReceiveMessagesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReceiveMessagesResponse], error)
+	GetRoom(ctx context.Context, in *GetRoomRequest, opts ...grpc.CallOption) (*GetRoomResponse, error)
 }
 
 type chatServiceClient struct {
@@ -131,13 +132,22 @@ func (c *chatServiceClient) ReceiveMessages(ctx context.Context, in *ReceiveMess
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ChatService_ReceiveMessagesClient = grpc.ServerStreamingClient[ReceiveMessagesResponse]
 
+func (c *chatServiceClient) GetRoom(ctx context.Context, in *GetRoomRequest, opts ...grpc.CallOption) (*GetRoomResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRoomResponse)
+	err := c.cc.Invoke(ctx, ChatService_GetRoom_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ChatServiceServer is the server API for ChatService service.
 // All implementations must embed UnimplementedChatServiceServer
 // for forward compatibility.
 //
 // Определение сервиса ChatService
 type ChatServiceServer interface {
-	// Методы сервиса
 	CreateRoom(context.Context, *CreateRoomRequest) (*CreateRoomResponse, error)
 	CloseRoom(context.Context, *CloseRoomRequest) (*CloseRoomResponse, error)
 	JoinRoom(context.Context, *JoinRoomRequest) (*JoinRoomResponse, error)
@@ -145,6 +155,7 @@ type ChatServiceServer interface {
 	SendPublicKey(context.Context, *SendPublicKeyRequest) (*SendPublicKeyResponse, error)
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
 	ReceiveMessages(*ReceiveMessagesRequest, grpc.ServerStreamingServer[ReceiveMessagesResponse]) error
+	GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error)
 	mustEmbedUnimplementedChatServiceServer()
 }
 
@@ -175,6 +186,9 @@ func (UnimplementedChatServiceServer) SendMessage(context.Context, *SendMessageR
 }
 func (UnimplementedChatServiceServer) ReceiveMessages(*ReceiveMessagesRequest, grpc.ServerStreamingServer[ReceiveMessagesResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ReceiveMessages not implemented")
+}
+func (UnimplementedChatServiceServer) GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoom not implemented")
 }
 func (UnimplementedChatServiceServer) mustEmbedUnimplementedChatServiceServer() {}
 func (UnimplementedChatServiceServer) testEmbeddedByValue()                     {}
@@ -316,6 +330,24 @@ func _ChatService_ReceiveMessages_Handler(srv interface{}, stream grpc.ServerStr
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ChatService_ReceiveMessagesServer = grpc.ServerStreamingServer[ReceiveMessagesResponse]
 
+func _ChatService_GetRoom_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRoomRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChatServiceServer).GetRoom(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_GetRoom_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).GetRoom(ctx, req.(*GetRoomRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ChatService_ServiceDesc is the grpc.ServiceDesc for ChatService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -346,6 +378,10 @@ var ChatService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SendMessage",
 			Handler:    _ChatService_SendMessage_Handler,
+		},
+		{
+			MethodName: "GetRoom",
+			Handler:    _ChatService_GetRoom_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
