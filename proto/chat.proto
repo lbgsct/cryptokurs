@@ -15,6 +15,7 @@ service ChatService {
     rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
     rpc ReceiveMessages(ReceiveMessagesRequest) returns (stream ReceiveMessagesResponse);
     rpc GetRoom(GetRoomRequest) returns (GetRoomResponse);
+    rpc GetRoomHistory(GetRoomHistoryRequest) returns (GetRoomHistoryResponse);
     rpc GetPublicKeys(GetPublicKeysRequest) returns (GetPublicKeysResponse); // Метод для получения публичных ключей
 }
 
@@ -85,6 +86,8 @@ message SendMessageRequest {
     string room_id = 1;
     string client_id = 2;
     bytes encrypted_message = 3;
+    string message_type = 4; // "message" или "file"
+    string file_name = 5;    // Имя файла (только для файловых сообщений)
 }
 
 message SendMessageResponse {
@@ -101,6 +104,9 @@ message ReceiveMessagesResponse {
     string type = 1; // "public_key" или "message"
     string sender_id = 2;
     bytes encrypted_message = 3;
+    string file_name = 4; // Только для файлов
+    int32 chunk_index = 5; // Номер фрагмента (только для файлов)
+    int32 total_chunks = 6; // Общее количество фрагментов (только для файлов)
 }
 
 message GetRoomRequest {
@@ -112,4 +118,21 @@ message GetRoomResponse {
     string mode = 2;      // Режим шифрования ("ECB", "CBC", "CFB", "OFB", "CTR", "RandomDelta")
     string padding = 3;   // Режим набивки ("Zeros", "ANSIX923", "PKCS7", "ISO10126")
     string prime = 4;     // Простое число в формате hex
+}
+
+message GetRoomHistoryRequest {
+    string room_id = 1;
+    // Опционально: параметры пагинации
+    // int32 limit = 2;
+    // int32 offset = 3;
+}
+
+message MessageRecord {
+    string sender_id = 1;
+    bytes encrypted_message = 2;
+    string created_at = 3;
+}
+
+message GetRoomHistoryResponse {
+    repeated MessageRecord messages = 1;
 }

@@ -27,6 +27,7 @@ const (
 	ChatService_SendMessage_FullMethodName     = "/chat.ChatService/SendMessage"
 	ChatService_ReceiveMessages_FullMethodName = "/chat.ChatService/ReceiveMessages"
 	ChatService_GetRoom_FullMethodName         = "/chat.ChatService/GetRoom"
+	ChatService_GetRoomHistory_FullMethodName  = "/chat.ChatService/GetRoomHistory"
 	ChatService_GetPublicKeys_FullMethodName   = "/chat.ChatService/GetPublicKeys"
 )
 
@@ -42,6 +43,7 @@ type ChatServiceClient interface {
 	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
 	ReceiveMessages(ctx context.Context, in *ReceiveMessagesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReceiveMessagesResponse], error)
 	GetRoom(ctx context.Context, in *GetRoomRequest, opts ...grpc.CallOption) (*GetRoomResponse, error)
+	GetRoomHistory(ctx context.Context, in *GetRoomHistoryRequest, opts ...grpc.CallOption) (*GetRoomHistoryResponse, error)
 	GetPublicKeys(ctx context.Context, in *GetPublicKeysRequest, opts ...grpc.CallOption) (*GetPublicKeysResponse, error)
 }
 
@@ -142,6 +144,16 @@ func (c *chatServiceClient) GetRoom(ctx context.Context, in *GetRoomRequest, opt
 	return out, nil
 }
 
+func (c *chatServiceClient) GetRoomHistory(ctx context.Context, in *GetRoomHistoryRequest, opts ...grpc.CallOption) (*GetRoomHistoryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRoomHistoryResponse)
+	err := c.cc.Invoke(ctx, ChatService_GetRoomHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *chatServiceClient) GetPublicKeys(ctx context.Context, in *GetPublicKeysRequest, opts ...grpc.CallOption) (*GetPublicKeysResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetPublicKeysResponse)
@@ -164,6 +176,7 @@ type ChatServiceServer interface {
 	SendMessage(context.Context, *SendMessageRequest) (*SendMessageResponse, error)
 	ReceiveMessages(*ReceiveMessagesRequest, grpc.ServerStreamingServer[ReceiveMessagesResponse]) error
 	GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error)
+	GetRoomHistory(context.Context, *GetRoomHistoryRequest) (*GetRoomHistoryResponse, error)
 	GetPublicKeys(context.Context, *GetPublicKeysRequest) (*GetPublicKeysResponse, error)
 	mustEmbedUnimplementedChatServiceServer()
 }
@@ -198,6 +211,9 @@ func (UnimplementedChatServiceServer) ReceiveMessages(*ReceiveMessagesRequest, g
 }
 func (UnimplementedChatServiceServer) GetRoom(context.Context, *GetRoomRequest) (*GetRoomResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetRoom not implemented")
+}
+func (UnimplementedChatServiceServer) GetRoomHistory(context.Context, *GetRoomHistoryRequest) (*GetRoomHistoryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoomHistory not implemented")
 }
 func (UnimplementedChatServiceServer) GetPublicKeys(context.Context, *GetPublicKeysRequest) (*GetPublicKeysResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPublicKeys not implemented")
@@ -360,6 +376,24 @@ func _ChatService_GetRoom_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChatService_GetRoomHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRoomHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChatServiceServer).GetRoomHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_GetRoomHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).GetRoomHistory(ctx, req.(*GetRoomHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ChatService_GetPublicKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetPublicKeysRequest)
 	if err := dec(in); err != nil {
@@ -412,6 +446,10 @@ var ChatService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetRoom",
 			Handler:    _ChatService_GetRoom_Handler,
+		},
+		{
+			MethodName: "GetRoomHistory",
+			Handler:    _ChatService_GetRoomHistory_Handler,
 		},
 		{
 			MethodName: "GetPublicKeys",

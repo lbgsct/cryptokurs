@@ -1,0 +1,60 @@
+<!-- web/templates/landing.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Главная страница</title>
+    <style>
+        /* Глобальные стили */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f7f7f7;
+        }
+        .container {
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+        }
+        /* Стили для кнопок-ссылок */
+        .login-link,
+        .register-link {
+            display: inline-block;
+            margin: 10px;
+            padding: 10px 20px;
+            text-decoration: none;
+            color: #fff;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+            font-size: 16px;
+        }
+        .login-link {
+            background-color: #af1212;
+            border: 1px solid #af1212;
+        }
+        .register-link {
+            background-color: #1565c0;
+            border: 1px solid #1565c0;
+        }
+        .login-link:hover,
+        .register-link:hover {
+            background-color: #fff;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Добро пожаловать!</h1>
+        <a href="/login" class="login-link">Войти</a>
+        <a href="/register" class="register-link">Зарегистрироваться</a>
+    </div>
+</body>
+</html>

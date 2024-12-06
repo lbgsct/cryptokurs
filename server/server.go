@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 	"github.com/streadway/amqp"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -44,11 +47,21 @@ type ChatServer struct {
 	roomsMutex      sync.RWMutex
 	rabbitMQConn    *amqp.Connection
 	rabbitMQChannel *amqp.Channel
+	db              *sql.DB
 }
 
 // Создание нового сервера
 func NewChatServer() *ChatServer {
-	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	var conn *amqp.Connection
+	var err error
+	for i := 0; i < 10; i++ {
+		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+		if err == nil {
+			break
+		}
+		log.Println("RabbitMQ не готов, повторная попытка через 5 секунд...")
+		time.Sleep(5 * time.Second)
+	}
 	if err != nil {
 		log.Fatalf("Не удалось подключиться к RabbitMQ: %v", err)
 	}
@@ -59,13 +72,20 @@ func NewChatServer() *ChatServer {
 	}
 
 	// Инициализация RedisStore
-	redisStore := NewRedisStore("localhost:6379", "", 0)
+	redisStore := NewRedisStore("redis-1:6379", "", 0)
+
+	// Подключение к PostgreSQL
+	db, err := sql.Open("postgres", "postgres://user:password@postgres:5432/postgres?sslmode=disable")
+	if err != nil {
+		log.Fatalf("Failed to connect to PostgreSQL: %v", err)
+	}
 
 	return &ChatServer{
 		redisStore:      redisStore,
 		rooms:           make(map[string]*ChatRoom),
 		rabbitMQConn:    conn,
 		rabbitMQChannel: channel,
+		db:              db,
 	}
 }
 
@@ -173,7 +193,6 @@ func (s *ChatServer) CloseRoom(ctx context.Context, req *chatpb.CloseRoomRequest
 	}, nil
 }
 
-// Метод присоединения к комнате
 // Метод присоединения к комнате с ограничением на максимальное количество клиентов (2)
 func (s *ChatServer) JoinRoom(ctx context.Context, req *chatpb.JoinRoomRequest) (*chatpb.JoinRoomResponse, error) {
 	s.roomsMutex.RLock()
@@ -353,6 +372,70 @@ func (s *ChatServer) SendMessage(ctx context.Context, req *chatpb.SendMessageReq
 		}, nil
 	}
 
+	// Определяем тип сообщения
+	messageType := "message"
+	if req.GetMessageType() == "file" {
+		messageType = "file"
+	}
+
+	// Подготовка общих заголовков
+	headers := amqp.Table{
+		"type":      messageType,
+		"sender_id": req.ClientId,
+	}
+	if messageType == "file" {
+		// Если это файл, добавляем имя файла в заголовки
+		headers["file_name"] = req.GetFileName()
+
+		// Получаем зашифрованные данные файла
+		data := req.EncryptedMessage
+
+		// Разбиваем файл на фрагменты
+		const chunkSize = 256 * 1024 // 256 KB
+		totalChunks := (len(data) + chunkSize - 1) / chunkSize
+
+		for i := 0; i < len(data); i += chunkSize {
+			end := i + chunkSize
+			if end > len(data) {
+				end = len(data)
+			}
+
+			chunkData := data[i:end]
+
+			// Добавляем информацию о фрагменте в заголовки
+			chunkHeaders := amqp.Table{
+				"type":         messageType,
+				"sender_id":    req.ClientId,
+				"file_name":    req.GetFileName(),
+				"chunk_index":  int32(i / chunkSize),
+				"total_chunks": int32(totalChunks),
+			}
+
+			// Публикуем каждый фрагмент
+			err := s.rabbitMQChannel.Publish(
+				room.RoomID, // имя exchange
+				"",          // routing key (не используется в fanout)
+				false,
+				false,
+				amqp.Publishing{
+					ContentType: "application/octet-stream",
+					Body:        chunkData,
+					Headers:     chunkHeaders,
+				},
+			)
+			if err != nil {
+				return &chatpb.SendMessageResponse{
+					Success: false,
+					Error:   fmt.Sprintf("Ошибка отправки фрагмента: %v", err),
+				}, nil
+			}
+		}
+
+		return &chatpb.SendMessageResponse{
+			Success: true,
+		}, nil
+	}
+
 	// Публикация обычного сообщения в exchange комнаты
 	err := s.rabbitMQChannel.Publish(
 		room.RoomID, // имя exchange
@@ -372,6 +455,21 @@ func (s *ChatServer) SendMessage(ctx context.Context, req *chatpb.SendMessageReq
 		return &chatpb.SendMessageResponse{
 			Success: false,
 			Error:   err.Error(),
+		}, nil
+	}
+
+	// Если публикация прошла успешно, сохраняем сообщение в БД
+	// Допустим, вы хотите хранить именно отправленное сообщение
+	_, dbErr := s.db.ExecContext(ctx,
+		"INSERT INTO messages (room_id, sender_id, encrypted_message) VALUES ($1, $2, $3)",
+		req.RoomId, req.ClientId, req.EncryptedMessage)
+	if dbErr != nil {
+		log.Printf("Failed to insert message into DB: %v", dbErr)
+		// Можно вернуть ошибку или просто залогировать её
+		// В зависимости от логики. Если хотите сообщить клиенту, что сообщение не сохранилось:
+		return &chatpb.SendMessageResponse{
+			Success: false,
+			Error:   "Не удалось сохранить сообщение в БД",
 		}, nil
 	}
 
@@ -438,6 +536,7 @@ func (s *ChatServer) ReceiveMessages(req *chatpb.ReceiveMessagesRequest, stream 
 		for msg := range msgs {
 			msgType, _ := msg.Headers["type"].(string)
 			senderID, _ := msg.Headers["sender_id"].(string)
+			fileName, _ := msg.Headers["file_name"].(string)
 
 			if senderID == req.ClientId {
 				// Игнорируем сообщения от самого себя
@@ -458,6 +557,66 @@ func (s *ChatServer) ReceiveMessages(req *chatpb.ReceiveMessagesRequest, stream 
 					SenderId:         senderID,
 					EncryptedMessage: msg.Body,
 				}
+			} else if msgType == "file" {
+				// Безопасное извлечение chunk_index и total_chunks
+				var chunkIndex int32
+				if val, ok := msg.Headers["chunk_index"]; ok {
+					switch v := val.(type) {
+					case int8:
+						chunkIndex = int32(v)
+					case int16:
+						chunkIndex = int32(v)
+					case int32:
+						chunkIndex = v
+					case int64:
+						chunkIndex = int32(v)
+					case float32:
+						chunkIndex = int32(v)
+					case float64:
+						chunkIndex = int32(v)
+					default:
+						log.Printf("Неизвестный тип для chunk_index: %T", v)
+						chunkIndex = 0
+					}
+				} else {
+					log.Printf("chunk_index отсутствует в заголовках")
+					chunkIndex = 0
+				}
+
+				var totalChunks int32
+				if val, ok := msg.Headers["total_chunks"]; ok {
+					switch v := val.(type) {
+					case int8:
+						totalChunks = int32(v)
+					case int16:
+						totalChunks = int32(v)
+					case int32:
+						totalChunks = v
+					case int64:
+						totalChunks = int32(v)
+					case float32:
+						totalChunks = int32(v)
+					case float64:
+						totalChunks = int32(v)
+					default:
+						log.Printf("Неизвестный тип для total_chunks: %T", v)
+						totalChunks = 1
+					}
+				} else {
+					log.Printf("total_chunks отсутствует в заголовках")
+					totalChunks = 1
+				}
+
+				response = &chatpb.ReceiveMessagesResponse{
+					Type:             "file",
+					SenderId:         senderID,
+					EncryptedMessage: msg.Body,
+					FileName:         fileName,
+					ChunkIndex:       chunkIndex,
+					TotalChunks:      totalChunks,
+				}
+
+				log.Printf("Получено сообщение типа 'file' от %s: %s (Chunk %d/%d)", senderID, fileName, chunkIndex+1, totalChunks)
 			} else {
 				// Неизвестный тип сообщения
 				continue
@@ -475,6 +634,43 @@ func (s *ChatServer) ReceiveMessages(req *chatpb.ReceiveMessagesRequest, stream 
 
 	<-done
 	return nil
+}
+
+// Метод получения истории сообщений
+func (s *ChatServer) GetRoomHistory(ctx context.Context, req *chatpb.GetRoomHistoryRequest) (*chatpb.GetRoomHistoryResponse, error) {
+	s.roomsMutex.RLock()
+	_, exists := s.rooms[req.RoomId]
+	s.roomsMutex.RUnlock()
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "Комната с ID %s не найдена", req.RoomId)
+	}
+
+	rows, err := s.db.QueryContext(ctx, "SELECT sender_id, encrypted_message, created_at FROM messages WHERE room_id = $1 ORDER BY id DESC LIMIT 50", req.RoomId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить историю сообщений: %v", err)
+	}
+	defer rows.Close()
+
+	var messages []*chatpb.MessageRecord
+	for rows.Next() {
+		var senderID string
+		var encryptedMessage []byte
+		var createdAt string // Можно использовать time.Time и потом конвертировать в строку
+
+		if err := rows.Scan(&senderID, &encryptedMessage, &createdAt); err != nil {
+			return nil, status.Errorf(codes.Internal, "Ошибка при чтении строки: %v", err)
+		}
+
+		messages = append(messages, &chatpb.MessageRecord{
+			SenderId:         senderID,
+			EncryptedMessage: encryptedMessage,
+			CreatedAt:        createdAt,
+		})
+	}
+
+	return &chatpb.GetRoomHistoryResponse{
+		Messages: messages,
+	}, nil
 }
 
 // Метод получения публичных ключей

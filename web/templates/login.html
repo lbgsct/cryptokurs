@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Вход - Secret Chat</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <h1>Вход</h1>
+    <div id="message">
+        {{if .success}}
+            <p style="color: green;">{{.success}}</p>
+        {{end}}
+        {{if .error}}
+            <p style="color: red;">{{.error}}</p>
+        {{end}}
+    </div>
+    <form id="login-form" action="/login" method="post">
+        <label for="username">Имя пользователя:</label>
+        <input type="text" name="username" id="username" required><br>
+
+        <label for="password">Пароль:</label>
+        <input type="password" name="password" id="password" required><br>
+
+        <button type="submit">Войти</button>
+    </form>
+    <p>Нет аккаунта? <a href="/register">Зарегистрироваться</a></p>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!-- web/templates/chat.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Secret Chat</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+    <h1>Добро пожаловать в Secret Chat</h1>
+
+    <!-- Кнопка выхода -->
+    <button id="logout-button">Выйти</button>
+
+    <!-- Отображение ошибок -->
+    <div id="chat-message">
+        {{if .error}}
+            <p style="color: red;">{{.error}}</p>
+        {{end}}
+    </div>
+
+    <!-- Форма создания комнаты -->
+    <h2>Создать чат-комнату</h2>
+    <form id="create-chat-form" action="/chats/create_chat" method="post">
+        <label for="algorithm">Алгоритм:</label>
+        <select name="algorithm" id="algorithm" required>
+            <option value="loki97">Loki97</option>
+            <option value="rc5">RC5</option>
+        </select><br>
+
+        <label for="mode">Режим:</label>
+        <select name="mode" id="mode" required>
+            <option value="ECB">ECB</option>
+            <option value="CBC">CBC</option>
+            <option value="CFB">CFB</option>
+            <option value="OFB">OFB</option>
+            <option value="CTR">CTR</option>
+            <option value="RandomDelta">Random Delta</option>
+        </select><br>
+
+        <label for="padding">Набивка:</label>
+        <select name="padding" id="padding" required>
+            <option value="Zeros">Zeros</option>
+            <option value="ANSIX923">ANSIX923</option>
+            <option value="PKCS7">PKCS7</option>
+            <option value="ISO10126">ISO10126</option>
+        </select><br>
+
+        <button type="submit">Создать комнату</button>
+    </form>
+
+    <!-- Форма присоединения к комнате -->
+    <h2>Присоединиться к чат-комнате</h2>
+    <form id="join-chat-form" action="/chats/join_chat" method="post">
+        <label for="room_id">ID комнаты:</label>
+        <input type="text" name="room_id" id="room_id" required><br>
+        <button type="submit">Присоединиться</button>
+    </form>
+
+    <!-- Поле для отправки сообщений через WebSocket -->
+    <h2>Отправить сообщение</h2>
+    <input type="text" id="message" placeholder="Введите сообщение" required>
+    <button id="send-message-button">Отправить</button>
+
+    <!-- Раздел для отображения сообщений -->
+    <div id="messages">
+        <!-- Сообщения будут добавляться здесь -->
+    </div>
+</body>
+</html>
