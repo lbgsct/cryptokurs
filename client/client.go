@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -272,11 +273,11 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 			log.Fatalf("Ошибка при получении сообщения из потока: %v", err)
 		}
 
-			// Maps for storing file chunks and tracking progress
-		fileChunks := make(map[string][][]byte)   // Map[fileKey][]byte
-		fileChunkCount := make(map[string]int)    // Map[fileKey]int
-		fileTotalChunks := make(map[string]int)   // Map[fileKey]int
-		mutex := &sync.Mutex{}                    // Mutex for thread safety
+		// Maps for storing file chunks and tracking progress
+		fileChunks := make(map[string][][]byte) // Map[fileKey][]byte
+		fileChunkCount := make(map[string]int)  // Map[fileKey]int
+		fileTotalChunks := make(map[string]int) // Map[fileKey]int
+		mutex := &sync.Mutex{}                  // Mutex for thread safety
 		switch msg.GetType() {
 		case "public_key":
 			senderID := msg.GetSenderId()
@@ -328,18 +329,18 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 				continue
 			}
 			fmt.Printf("Сообщение от %s: %s\n", senderID, string(decryptedMessage))
-		case  "file" {
+		case "file":
 			senderID := msg.GetSenderId()
 			encryptedChunk := msg.GetEncryptedMessage()
 			fileName := msg.GetFileName()
 			chunkIndex := int(msg.GetChunkIndex())
 			totalChunks := int(msg.GetTotalChunks())
-		
+
 			fmt.Printf("Получен файл: %s от клиента %s (Chunk %d/%d)\n", fileName, senderID, chunkIndex+1, totalChunks)
-		
+
 			// Key to identify the file uniquely
 			fileKey := senderID + "_" + fileName
-		
+
 			// Decrypt the chunk
 			cipherContextMutex.Lock()
 			if *cipherContext == nil {
@@ -353,7 +354,7 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 				fmt.Printf("Ошибка при расшифровке фрагмента файла от %s: %v\n", senderID, err)
 				continue
 			}
-		
+
 			mutex.Lock()
 			// Initialize data structures if first chunk
 			if _, exists := fileChunks[fileKey]; !exists {
@@ -361,11 +362,11 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 				fileChunkCount[fileKey] = 0
 				fileTotalChunks[fileKey] = totalChunks
 			}
-		
+
 			// Store the chunk
 			fileChunks[fileKey][chunkIndex] = decryptedChunk
 			fileChunkCount[fileKey]++
-		
+
 			// Check if all chunks have been received
 			if fileChunkCount[fileKey] == fileTotalChunks[fileKey] {
 				// Reassemble the file
@@ -384,7 +385,7 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 						continue
 					}
 				}
-		
+
 				// Check if file already exists and modify the name if needed
 				baseFileName := filepath.Base(fileName)
 				outputPath := filepath.Join(clientFolder, baseFileName)
@@ -403,9 +404,9 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 						break
 					}
 				}
-		
+
 				fmt.Printf("Сохранение файла как: %s\n", outputPath)
-		
+
 				// Save the file
 				err = os.WriteFile(outputPath, fileData, 0644)
 				if err != nil {
@@ -413,16 +414,15 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 					mutex.Unlock()
 					continue
 				}
-		
+
 				fmt.Printf("Файл от %s сохранен как %s\n", senderID, outputPath)
-		
+
 				// Clean up
 				delete(fileChunks, fileKey)
 				delete(fileChunkCount, fileKey)
 				delete(fileTotalChunks, fileKey)
 			}
 			mutex.Unlock()
-		}
 		default:
 			// Неизвестный тип сообщения
 			continue
@@ -430,31 +430,29 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 	}
 }
 
-
 func sendFile(client chatpb.ChatServiceClient, roomID, clientID string, cipherContext *algorithm.CryptoSymmetricContext) {
-    fmt.Print("Введите путь к файлу для отправки: ")
-    reader := bufio.NewReader(os.Stdin)
-    filePath, _ := reader.ReadString('\n')
-    filePath = strings.TrimSpace(filePath)
+	fmt.Print("Введите путь к файлу для отправки: ")
+	reader := bufio.NewReader(os.Stdin)
+	filePath, _ := reader.ReadString('\n')
+	filePath = strings.TrimSpace(filePath)
 
-    // Извлекаем базовое имя файла
-    baseFileName := filepath.Base(filePath)
+	// Извлекаем базовое имя файла
+	baseFileName := filepath.Base(filePath)
 
-    // Чтение содержимого файла
-    fileData, err := os.ReadFile(filePath)
-    if err != nil {
-        fmt.Printf("Ошибка чтения файла: %v\n", err)
-        return
-    }
+	// Чтение содержимого файла
+	fileData, err := os.ReadFile(filePath)
+	if err != nil {
+		fmt.Printf("Ошибка чтения файла: %v\n", err)
+		return
+	}
 
-
-    // Вывод текущего рабочего каталога
-    cwd, err := os.Getwd()
-    if err != nil {
-        fmt.Println("Ошибка при получении текущего каталога:", err)
-    } else {
-        fmt.Println("Текущий рабочий каталог:", cwd)
-    }
+	// Вывод текущего рабочего каталога
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Println("Ошибка при получении текущего каталога:", err)
+	} else {
+		fmt.Println("Текущий рабочий каталог:", cwd)
+	}
 
 	// Шифруем файл
 	encryptedData, err := cipherContext.Encrypt(fileData)
@@ -465,12 +463,12 @@ func sendFile(client chatpb.ChatServiceClient, roomID, clientID string, cipherCo
 
 	// Отправляем файл
 	_, err = client.SendMessage(context.Background(), &chatpb.SendMessageRequest{
-        RoomId:           roomID,
-        ClientId:         clientID,
-        MessageType:      "file",
-        FileName:         baseFileName,
-        EncryptedMessage: encryptedData,
-    })
+		RoomId:           roomID,
+		ClientId:         clientID,
+		MessageType:      "file",
+		FileName:         baseFileName,
+		EncryptedMessage: encryptedData,
+	})
 	if err != nil {
 		fmt.Printf("Ошибка при отправке файла: %v\n", err)
 		return

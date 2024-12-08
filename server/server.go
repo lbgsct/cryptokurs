@@ -72,10 +72,10 @@ func NewChatServer() *ChatServer {
 	}
 
 	// Инициализация RedisStore
-	redisStore := NewRedisStore("redis-1:6379", "", 0)
+	redisStore := NewRedisStore("redis-container:6379", "", 0)
 
 	// Подключение к PostgreSQL
-	db, err := sql.Open("postgres", "postgres://user:password@postgres:5432/postgres?sslmode=disable")
+	db, err := sql.Open("postgres", "postgres://postgres:mysecretpassword@postgres:5432/mydb?sslmode=disable")
 	if err != nil {
 		log.Fatalf("Failed to connect to PostgreSQL: %v", err)
 	}

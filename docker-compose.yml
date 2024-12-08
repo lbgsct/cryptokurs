@@ -2,7 +2,7 @@ version: '3.9'
 services:
   postgres:
     image: postgres:14
-    container_name: postgrescont
+    container_name: postgres-container
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: mysecretpassword
@@ -17,7 +17,7 @@ services:
 
   redis:
     image: redis:6
-    container_name: my-redis-container
+    container_name: redis-container
     ports:
       - "6379:6379"
 #    healthcheck:
