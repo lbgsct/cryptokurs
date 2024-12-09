@@ -706,7 +706,11 @@ func main() {
 		log.Fatalf("Не удалось прослушивать порт: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.MaxRecvMsgSize(1024*1024*500), // 50 МБ – можно изменить по желанию
+		grpc.MaxSendMsgSize(1024*1024*500),
+	)
+
 	chatServer := NewChatServer()
 
 	chatpb.RegisterChatServiceServer(grpcServer, chatServer)

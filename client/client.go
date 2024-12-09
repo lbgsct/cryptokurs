@@ -24,7 +24,14 @@ import (
 
 func main() {
 	// Установка соединения с сервером gRPC
-	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
+	conn, err := grpc.Dial("localhost:50051",
+		grpc.WithInsecure(),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(1024*1024*500), // Увеличиваем максимально допустимый размер получаемого сообщения
+			grpc.MaxCallSendMsgSize(1024*1024*500), // Увеличиваем максимально допустимый размер отправляемого сообщения
+		),
+	)
+
 	if err != nil {
 		log.Fatalf("Не удалось подключиться к серверу: %v", err)
 	}
@@ -117,7 +124,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Ошибка при отправке публичного ключа: %v", err)
 	}
-	//fmt.Println("Публичный ключ отправлен. Ожидание других клиентов...")
 
 	// Переменные для инициализации cipherContext
 	var cipherContextMutex sync.Mutex
@@ -153,8 +159,6 @@ func main() {
 				continue
 			}
 
-			//log.Printf("Полученные публичные ключи: %v", getKeysResp.GetPublicKeys())
-
 			for _, clientKey := range getKeysResp.GetPublicKeys() {
 				if clientKey.GetClientId() != clientID && clientKey.GetPublicKey() != "" {
 					otherPublicKeyHex := clientKey.GetPublicKey()
@@ -169,8 +173,6 @@ func main() {
 					sharedKey := algorithm.GenerateSharedKey(privateKey, otherPublicKey, prime)
 					hashedSharedKey := algorithm.HashSharedKey(sharedKey)
 
-					//fmt.Printf("Общий секретный ключ вычислен\n")
-
 					// Инициализируем cipherContext
 					initCipher(hashedSharedKey, &cipherContext, &cipherContextMutex, algorithmName, mode, padding)
 					sharedKeyComputed = true
@@ -179,23 +181,28 @@ func main() {
 			}
 
 			if !sharedKeyComputed {
-				//	fmt.Println("Ожидание публичного ключа другого клиента...")
 				time.Sleep(2 * time.Second)
 			}
 		}
 	}()
 
-	// Цикл отправки сообщений
+	// Цикл отправки сообщений (объединённый с функционалом отправки файлов)
 	for {
-		fmt.Print("Введите сообщение или команду: ")
+		fmt.Print("Введите сообщение (или 'send-file' для отправки файла): ")
 		message, _ := reader.ReadString('\n')
 		message = strings.TrimSpace(message)
-		if message == "" {
-			continue
-		} else if message == "send-file" {
+
+		// Отправка файла
+		if message == "send-file" {
 			sendFile(client, roomID, clientID, cipherContext)
 			continue
 		}
+
+		// Проверка на пустое сообщение
+		if message == "" {
+			continue
+		}
+
 		// Обработка команд
 		if strings.HasPrefix(message, "/") {
 			switch message {
@@ -258,7 +265,17 @@ func main() {
 	}
 }
 
-func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, cipherContext **algorithm.CryptoSymmetricContext, cipherContextMutex *sync.Mutex, otherPublicKeys *map[string]string, sharedKeyComputed *bool, privateKey *big.Int, prime *big.Int, algorithmName, mode, padding string) {
+func receiveMessages(
+	client chatpb.ChatServiceClient,
+	roomID, clientID string,
+	cipherContext **algorithm.CryptoSymmetricContext,
+	cipherContextMutex *sync.Mutex,
+	otherPublicKeys *map[string]string,
+	sharedKeyComputed *bool,
+	privateKey *big.Int,
+	prime *big.Int,
+	algorithmName, mode, padding string,
+) {
 	stream, err := client.ReceiveMessages(context.Background(), &chatpb.ReceiveMessagesRequest{
 		RoomId:   roomID,
 		ClientId: clientID,
@@ -267,19 +284,19 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 		log.Fatalf("Ошибка при получении сообщений: %v", err)
 	}
 
+	// Maps for storing file chunks and tracking progress
+	fileChunks := make(map[string][][]byte) // Map[fileKey][]byte
+	fileChunkCount := make(map[string]int)  // Map[fileKey]int
+	fileTotalChunks := make(map[string]int) // Map[fileKey]int
+	mutex := &sync.Mutex{}                  // Mutex for thread safety
+
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
 			log.Fatalf("Ошибка при получении сообщения из потока: %v", err)
 		}
 
-		// Maps for storing file chunks and tracking progress
-		fileChunks := make(map[string][][]byte) // Map[fileKey][]byte
-		fileChunkCount := make(map[string]int)  // Map[fileKey]int
-		fileTotalChunks := make(map[string]int) // Map[fileKey]int
-		mutex := &sync.Mutex{}                  // Mutex for thread safety
-		switch msg.GetType() {
-		case "public_key":
+		if msg.GetType() == "public_key" {
 			senderID := msg.GetSenderId()
 			publicKeyHex := string(msg.GetEncryptedMessage())
 
@@ -290,7 +307,7 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 
 			// Сохраняем публичный ключ другого клиента
 			(*otherPublicKeys)[senderID] = publicKeyHex
-			//fmt.Printf("Получен публичный ключ от клиента %s\n", senderID)
+			fmt.Printf("Получен публичный ключ от клиента %s\n", senderID)
 
 			// Проверяем, получили ли мы все публичные ключи
 			if len(*otherPublicKeys) >= 1 && !(*sharedKeyComputed) {
@@ -305,14 +322,17 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 				sharedKey := algorithm.GenerateSharedKey(privateKey, otherPublicKey, prime)
 				hashedSharedKey := algorithm.HashSharedKey(sharedKey)
 
-				//fmt.Printf("Общий секретный ключ вычислен\n")
+				fmt.Printf("Общий секретный ключ вычислен\n")
 
 				// Инициализируем cipherContext
 				initCipher(hashedSharedKey, cipherContext, cipherContextMutex, algorithmName, mode, padding)
 				*sharedKeyComputed = true
 			}
 
-		case "message":
+			continue
+		}
+
+		if msg.GetType() == "message" {
 			senderID := msg.GetSenderId()
 			encryptedMessage := msg.GetEncryptedMessage()
 
@@ -329,7 +349,9 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 				continue
 			}
 			fmt.Printf("Сообщение от %s: %s\n", senderID, string(decryptedMessage))
-		case "file":
+		}
+
+		if msg.GetType() == "file" {
 			senderID := msg.GetSenderId()
 			encryptedChunk := msg.GetEncryptedMessage()
 			fileName := msg.GetFileName()
@@ -400,7 +422,6 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 						outputPath = filepath.Join(clientFolder, fmt.Sprintf("%s(%d)%s", baseName, counter, ext))
 						counter++
 					} else {
-						// File doesn't exist, break out of the loop
 						break
 					}
 				}
@@ -423,9 +444,6 @@ func receiveMessages(client chatpb.ChatServiceClient, roomID, clientID string, c
 				delete(fileTotalChunks, fileKey)
 			}
 			mutex.Unlock()
-		default:
-			// Неизвестный тип сообщения
-			continue
 		}
 	}
 }
@@ -487,7 +505,7 @@ func initCipher(hashedSharedKey []byte, cipherContext **algorithm.CryptoSymmetri
 	if algorithmName == "loki97" {
 		symmetricAlgorithm = &algorithm.Loki97{}
 	} else if algorithmName == "rc5" {
-		symmetricAlgorithm = &algorithm.RC5{}
+		symmetricAlgorithm = algorithm.NewRC5()
 	} else {
 		log.Fatalf("Неизвестный алгоритм: %s", algorithmName)
 	}
@@ -498,8 +516,8 @@ func initCipher(hashedSharedKey []byte, cipherContext **algorithm.CryptoSymmetri
 		log.Fatalf("Ошибка при установке ключа: %v", err)
 	}
 
-	// Преобразование режима шифрования и режима набивки в соответствующие значения
-	cipherMode := algorithm.CipherMode(algorithm.CBC) // Значение по умолчанию
+	// Преобразование режима шифрования и режима набивки
+	cipherMode := algorithm.CipherMode(algorithm.CBC) // По умолчанию
 	switch mode {
 	case "ECB":
 		cipherMode = algorithm.ECB
@@ -517,7 +535,7 @@ func initCipher(hashedSharedKey []byte, cipherContext **algorithm.CryptoSymmetri
 		log.Fatalf("Неизвестный режим шифрования: %s", mode)
 	}
 
-	paddingMode := algorithm.PaddingMode(algorithm.PKCS7) // Значение по умолчанию
+	paddingMode := algorithm.PaddingMode(algorithm.PKCS7) // По умолчанию
 	switch padding {
 	case "Zeros":
 		paddingMode = algorithm.Zeros
@@ -533,7 +551,7 @@ func initCipher(hashedSharedKey []byte, cipherContext **algorithm.CryptoSymmetri
 
 	// Деривация IV из общего секретного ключа
 	ivHash := sha256.Sum256(hashedSharedKey)
-	iv := ivHash[:16] // Используем первые 16 байт для IV
+	iv := ivHash[:16]
 
 	// Инициализируем контекст шифрования
 	cipherContextMutex.Lock()
@@ -541,14 +559,13 @@ func initCipher(hashedSharedKey []byte, cipherContext **algorithm.CryptoSymmetri
 	cipherCtx, err := algorithm.NewCryptoSymmetricContext(
 		finalKey,
 		symmetricAlgorithm,
-		cipherMode,  // режим шифрования
-		paddingMode, // режим набивки
+		cipherMode,
+		paddingMode,
 		iv,
-		16, // размер блока (в зависимости от алгоритма)
+		16, // размер блока
 	)
 	if err != nil {
 		log.Fatalf("Ошибка при инициализации контекста шифрования: %v", err)
 	}
 	*cipherContext = cipherCtx
-	//fmt.Printf("IV установлен в контексте: %x\n", iv)
 }

@@ -163,7 +163,6 @@ func (rc5 *RC5) decryptBlock(block []byte) ([]byte, error) {
 	return decryptedBlock, nil
 }
 
-// keyExpansion выполняет расширение ключа
 func (rc5 *RC5) keyExpansion(K []byte) []uint64 {
 	w := uint(rc5.w)
 	r := rc5.r
@@ -186,7 +185,6 @@ func (rc5 *RC5) keyExpansion(K []byte) []uint64 {
 		panic("unsupported word size")
 	}
 
-	// Шаг 1: Преобразуем ключ K[0..b-1] в L[0..c-1]
 	u := w / 8                     // байт на слово
 	c := (b + int(u) - 1) / int(u) // количество слов в L
 	L := make([]uint64, c)
@@ -195,14 +193,12 @@ func (rc5 *RC5) keyExpansion(K []byte) []uint64 {
 		L[i/int(u)] = (L[i/int(u)] << 8) + uint64(K[i])
 	}
 
-	// Шаг 2: Инициализация массива S
 	S := make([]uint64, t)
 	S[0] = Pw
 	for i := 1; i < t; i++ {
 		S[i] = S[i-1] + Qw
 	}
 
-	// Шаг 3: Перемешивание L и S
 	var A, B uint64
 	i, j := 0, 0
 	n := 3 * max(t, c)
@@ -214,6 +210,8 @@ func (rc5 *RC5) keyExpansion(K []byte) []uint64 {
 		i = (i + 1) % int(t)
 		j = (j + 1) % int(c)
 	}
+	fmt.Printf("Step:  i=%d, j=%d, A=%x, B=%x, S[i]=%x, L[j]=%x\n", i, j, A, B, S[i], L[j])
+
 	return S
 }
 
