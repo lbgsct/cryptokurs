@@ -210,8 +210,6 @@ func (rc5 *RC5) keyExpansion(K []byte) []uint64 {
 		i = (i + 1) % int(t)
 		j = (j + 1) % int(c)
 	}
-	fmt.Printf("Step:  i=%d, j=%d, A=%x, B=%x, S[i]=%x, L[j]=%x\n", i, j, A, B, S[i], L[j])
-
 	return S
 }
 

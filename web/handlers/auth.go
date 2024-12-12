@@ -1,16 +1,19 @@
-// web/handlers/auth.go
 package handlers
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
+	_ "github.com/jackc/pgx/v5/stdlib" // импортируем драйвер pgx
 	"golang.org/x/crypto/bcrypt"
 )
 
-var JwtKey = []byte("your_secret_key") // Замените на надежный ключ
+var JwtKey = []byte("your_secret_key") // замените на надежный ключ
 
 type Credentials struct {
 	Username string `form:"username" json:"username" binding:"required"`
@@ -22,9 +25,22 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-var users = make(map[string]string) // Временное хранилище пользователей
+var db *sql.DB // Глобальное подключение к БД
 
-// Register регистрирует нового пользователя
+func InitializeDB(dataSourceName string) error {
+	var err error
+	db, err = sql.Open("pgx", dataSourceName)
+	if err != nil {
+		return fmt.Errorf("failed to open DB: %w", err)
+	}
+
+	// Проверяем подключение
+	if err := db.Ping(); err != nil {
+		return fmt.Errorf("failed to ping DB: %w", err)
+	}
+	return nil
+}
+
 func Register(c *gin.Context) {
 	var creds Credentials
 	if err := c.ShouldBind(&creds); err != nil {
@@ -32,26 +48,32 @@ func Register(c *gin.Context) {
 		return
 	}
 
-	// Проверка, существует ли пользователь
-	if _, exists := users[creds.Username]; exists {
+	var exists bool
+	err := db.QueryRowContext(context.Background(), "SELECT EXISTS(SELECT 1 FROM users WHERE username=$1)", creds.Username).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
+		return
+	}
+	if exists {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User already exists"})
 		return
 	}
 
-	// Хеширование пароля
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(creds.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not hash password"})
 		return
 	}
 
-	// Сохранение пользователя в хранилище (замените на базу данных в реальном приложении)
-	users[creds.Username] = string(hashedPassword)
+	_, err = db.ExecContext(context.Background(), "INSERT INTO users (username, password) VALUES ($1, $2)", creds.Username, hashedPassword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save user"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User registered successfully"})
 }
 
-// Login аутентифицирует пользователя и возвращает JWT
 func Login(c *gin.Context) {
 	var creds Credentials
 	if err := c.ShouldBind(&creds); err != nil {
@@ -59,20 +81,21 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Проверяем наличие пользователя
-	storedPassword, ok := users[creds.Username]
-	if !ok {
+	var storedPassword string
+	err := db.QueryRowContext(context.Background(), "SELECT password FROM users WHERE username=$1", creds.Username).Scan(&storedPassword)
+	if err == sql.ErrNoRows {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
 		return
 	}
 
-	// Проверяем пароль
 	if err := bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(creds.Password)); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Incorrect password"})
 		return
 	}
 
-	// Создаем токен JWT
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
 		Username: creds.Username,
@@ -88,8 +111,6 @@ func Login(c *gin.Context) {
 		return
 	}
 
-	// Устанавливаем токен в cookie
 	c.SetCookie("token", tokenString, int(expirationTime.Sub(time.Now()).Seconds()), "/", "", false, true)
-
 	c.JSON(http.StatusOK, gin.H{"message": "Logged in successfully"})
 }

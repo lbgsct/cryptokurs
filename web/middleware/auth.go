@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/lbgsct/cryptokurs/web/handlers" // Замените на фактический путь
+	"github.com/lbgsct/cryptokurs/web/handlers" 
 )
 
 func AuthMiddleware() gin.HandlerFunc {

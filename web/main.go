@@ -1,8 +1,8 @@
-// web/main.go
 package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/lbgsct/cryptokurs/web/handlers"
@@ -10,6 +10,18 @@ import (
 )
 
 func main() {
+	// Если вы используете переменные окружения из docker-compose:
+	dsn := os.Getenv("POSTGRES_DSN")
+	if dsn == "" {
+		// На случай запуска локально без docker-compose:
+		dsn = "postgres://postgres:mysecretpassword@localhost:5432/mydb?sslmode=disable"
+	}
+
+	// Инициализируем БД до запуска роутера
+	if err := handlers.InitializeDB(dsn); err != nil {
+		log.Fatalf("Не удалось инициализировать БД: %v", err)
+	}
+
 	router := gin.Default()
 
 	// Загрузка HTML-шаблонов
@@ -34,9 +46,6 @@ func main() {
 	})
 	router.POST("/login", handlers.Login)
 
-	// Маршрут выхода
-	//router.POST("/logout", handlers.Logout)
-
 	// Группа маршрутов, требующих авторизации
 	authorized := router.Group("/chats")
 	authorized.Use(middleware.AuthMiddleware())
@@ -52,8 +61,6 @@ func main() {
 		// Чат-операции
 		authorized.POST("/create_chat", handlers.CreateChat)
 		authorized.POST("/join_chat", handlers.JoinChat)
-		// Отправка сообщений будет обрабатываться через WebSocket, поэтому можно удалить этот маршрут
-		// authorized.POST("/send_message", handlers.SendMessage)
 
 		// WebSocket маршрут
 		authorized.GET("/ws", handlers.WebSocketHandler)
