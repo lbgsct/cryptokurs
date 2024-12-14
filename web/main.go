@@ -5,12 +5,15 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lbgsct/cryptokurs/web/grpcclient"
 	"github.com/lbgsct/cryptokurs/web/handlers"
 	"github.com/lbgsct/cryptokurs/web/middleware"
 )
 
 func main() {
-	// Если вы используете переменные окружения из docker-compose:
+	grpcclient.InitGRPCClient()
+	defer grpcclient.CloseGRPC()
+	// Получаем DSN из переменных окружения или используем значение по умолчанию
 	dsn := os.Getenv("POSTGRES_DSN")
 	if dsn == "" {
 		// На случай запуска локально без docker-compose:
@@ -24,10 +27,10 @@ func main() {
 
 	router := gin.Default()
 
-	// Загрузка HTML-шаблонов
+	// Загрузка HTML-шаблонов (убедитесь, что путь корректен)
 	router.LoadHTMLGlob("templates/*")
 
-	// Обслуживание статических файлов
+	// Обслуживание статических файлов (убедитесь, что путь корректен)
 	router.Static("/static", "./static")
 
 	// Главная страница (landing page)
@@ -47,23 +50,73 @@ func main() {
 	router.POST("/login", handlers.Login)
 
 	// Группа маршрутов, требующих авторизации
-	authorized := router.Group("/chats")
+	/*authorized := router.Group("/chats")
 	authorized.Use(middleware.AuthMiddleware())
 	{
-		// Главная страница чата
-		authorized.GET("/", func(c *gin.Context) {
-			roomID := c.Query("room_id")
-			c.HTML(200, "chat.html", gin.H{
-				"RoomID": roomID,
-			})
-		})
+		// Маршрут для меню чатов
+		authorized.GET("/menu", handlers.MenuHandler)
 
-		// Чат-операции
+		// Маршрут для отображения страницы чата с room_id
+		authorized.GET("/chat", handlers.ChatHandler) // /chats/chat?room_id=...
+
+		// Маршрут для отображения страницы создания чата (GET)
+		authorized.GET("/create_chat", handlers.ShowCreateChatPage)
+
+		// Маршрут для обработки создания чата (POST)
 		authorized.POST("/create_chat", handlers.CreateChat)
+
+		// Маршрут для присоединения к чату (POST)
 		authorized.POST("/join_chat", handlers.JoinChat)
 
 		// WebSocket маршрут
 		authorized.GET("/ws", handlers.WebSocketHandler)
+
+		// Маршрут для отправки приглашения (POST)
+		authorized.POST("/send_invitation", handlers.SendInvitationHandler)
+
+		// Маршрут для получения списка приглашений (GET)
+		authorized.GET("/invitations", handlers.ListInvitationsHandler)
+
+		// Маршрут для ответа на приглашение (POST)
+		authorized.POST("/respond_invitation", handlers.RespondInvitationHandler)
+
+		// Маршрут для выхода из профиля
+		authorized.GET("/logout", handlers.LogoutHandler)
+	}*/
+
+	authorized := router.Group("/messenger")
+	authorized.Use(middleware.AuthMiddleware())
+	{
+		// Маршрут для меню чатов
+		authorized.GET("/lobby", handlers.LobbyHandler)
+
+		// Маршрут для отображения страницы чата с room_id
+		authorized.GET("/chat", handlers.ChatHandler) // /chats/chat?room_id=...
+
+		// Маршрут для отображения страницы создания чата (GET)
+		authorized.GET("/create_chat", handlers.ShowCreateChatPage)
+
+		// Маршрут для обработки создания чата (POST)
+		authorized.POST("/create_chat", handlers.CreateChat)
+
+		// Маршрут для присоединения к чату (POST)
+		authorized.POST("/join_chat", handlers.JoinChat)
+
+		// WebSocket маршрут
+		authorized.GET("/ws", handlers.WebSocketHandler)
+
+		// Удаляем маршруты отправки приглашений через меню
+		// authorized.POST("/send_invitation", handlers.SendInvitationHandler)
+		// authorized.GET("/invitations", handlers.ListInvitationsHandler)
+		// authorized.POST("/respond_invitation", handlers.RespondInvitationHandler)
+
+		// Если осталась необходимость обрабатывать приглашения, но через другие формы, оставьте эти маршруты
+		authorized.POST("/send_invitation", handlers.SendInvitationHandler)
+		authorized.GET("/invitations", handlers.ListInvitationsHandler)
+		authorized.POST("/respond_invitation", handlers.RespondInvitationHandler)
+
+		// Маршрут для выхода из профиля
+		authorized.GET("/logout", handlers.LogoutHandler)
 	}
 
 	// Запуск сервера на порту 8080

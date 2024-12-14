@@ -1,9 +1,11 @@
-// web/handlers/ws.go
 package handlers
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -12,7 +14,7 @@ import (
 )
 
 // Объявление upgrader для WebSocket
-var upgrader = websocket.Upgrader{
+var upgraderWS = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
@@ -31,57 +33,141 @@ func init() {
 	grpcClientWS = chatpb.NewChatServiceClient(conn)
 }
 
+// clients хранит активные WebSocket-соединения по username
+var clients = make(map[string]*websocket.Conn)
+var clientsMutex sync.RWMutex
+
+// SendNotification отправляет уведомление пользователю по его username
+func SendNotification(username string, notification map[string]interface{}) error {
+	clientsMutex.RLock()
+	conn, exists := clients[username]
+	clientsMutex.RUnlock()
+	if !exists {
+		log.Printf("Нет активного WebSocket-соединения для пользователя %s", username)
+		return nil // Не возвращаем ошибку, если соединение не активно
+	}
+
+	err := conn.WriteJSON(map[string]interface{}{
+		"type":         "notification",
+		"notification": notification,
+	})
+	if err != nil {
+		log.Printf("Ошибка при отправке уведомления пользователю %s: %v", username, err)
+		return err
+	}
+
+	return nil
+}
+
 // WebSocketHandler обрабатывает WebSocket соединения
 func WebSocketHandler(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	conn, err := upgraderWS.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Println("Ошибка при обновлении соединения:", err)
 		return
 	}
 	defer conn.Close()
 
-	// Получение room_id из параметров запроса
-	roomID := c.Query("room_id")
-	username, exists := c.Get("username") // Получаем имя пользователя из контекста
-	if !exists {
+	username := getCurrentUsername(c)
+	if username == "" {
 		conn.WriteMessage(websocket.TextMessage, []byte("Необходимо войти в систему"))
 		return
 	}
 
-	if roomID == "" || username == "" {
-		conn.WriteMessage(websocket.TextMessage, []byte("room_id и username обязательны"))
-		return
-	}
+	clientsMutex.Lock()
+	clients[username] = conn
+	clientsMutex.Unlock()
+	defer func() {
+		clientsMutex.Lock()
+		delete(clients, username)
+		clientsMutex.Unlock()
+	}()
 
-	log.Printf("Пользователь %s подключился к комнате %s\n", username.(string), roomID)
+	log.Printf("Пользователь %s подключился к WebSocket\n", username)
 
-	// Основной цикл обработки сообщений
 	for {
-		messageType, message, err := conn.ReadMessage()
+		var msg map[string]interface{}
+		err := conn.ReadJSON(&msg)
 		if err != nil {
 			log.Println("Ошибка при чтении сообщения:", err)
 			break
 		}
 
-		// Здесь можно добавить логику шифрования сообщения с использованием вашего криптографического контекста
-
-		// Отправляем сообщение на gRPC-сервер
-		_, err = grpcClientWS.SendMessage(c, &chatpb.SendMessageRequest{
-			RoomId:           roomID,
-			ClientId:         username.(string),
-			EncryptedMessage: message, // Замените на зашифрованное сообщение
-		})
-		if err != nil {
-			log.Println("Ошибка при отправке сообщения через gRPC:", err)
+		msgType, ok := msg["type"].(string)
+		if !ok {
+			log.Println("Сообщение без типа")
 			continue
 		}
 
-		// Рассылаем сообщение всем клиентам в комнате (реализация зависит от вашего gRPC-сервера)
-		// В данном примере мы просто эмулируем рассылку обратно отправителю
-		err = conn.WriteMessage(messageType, message)
-		if err != nil {
-			log.Println("Ошибка при отправке сообщения обратно:", err)
-			break
+		switch msgType {
+		case "chat":
+			content, ok1 := msg["content"].(string)
+			roomID, ok2 := msg["room_id"].(string)
+			if !ok1 || !ok2 || content == "" || roomID == "" {
+				log.Println("Некорректное содержимое сообщения")
+				continue
+			}
+
+			cipherContext := LoadCipherContext(roomID, username)
+			if cipherContext == nil {
+				conn.WriteJSON(map[string]interface{}{
+					"type":    "error",
+					"message": "Шифровальный контекст не инициализирован",
+				})
+				continue
+			}
+
+			encryptedMessage, err := cipherContext.Encrypt([]byte(content))
+			if err != nil {
+				log.Printf("Ошибка при шифровании сообщения: %v", err)
+				conn.WriteJSON(map[string]interface{}{
+					"type":    "error",
+					"message": "Ошибка шифрования сообщения",
+				})
+				continue
+			}
+
+			_, err = grpcClientWS.SendMessage(context.Background(), &chatpb.SendMessageRequest{
+				RoomId:           roomID,
+				ClientId:         username,
+				EncryptedMessage: encryptedMessage,
+			})
+			if err != nil {
+				log.Printf("Ошибка при отправке сообщения через gRPC: %v", err)
+				conn.WriteJSON(map[string]interface{}{
+					"type":    "error",
+					"message": "Ошибка отправки сообщения",
+				})
+				continue
+			}
+
+			err = conn.WriteJSON(map[string]interface{}{
+				"type":      "chat",
+				"sender":    username,
+				"content":   content,
+				"room_id":   roomID,
+				"timestamp": time.Now().Format("2006-01-02 15:04:05"),
+			})
+			if err != nil {
+				log.Printf("Ошибка при отправке сообщения обратно: %v", err)
+				break
+			}
+
+		default:
+			log.Printf("Неизвестный тип сообщения: %s", msgType)
 		}
 	}
+}
+
+// getCurrentUsername извлекает имя пользователя из контекста
+func getCurrentUsername(c *gin.Context) string {
+	usernameVal, exists := c.Get("username")
+	if !exists {
+		return ""
+	}
+	username, ok := usernameVal.(string)
+	if !ok {
+		return ""
+	}
+	return username
 }

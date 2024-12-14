@@ -1,71 +1,59 @@
-<!-- web/templates/chat.html -->
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <title>Secret Chat</title>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="/static/js/app.js" defer></script>
 </head>
 <body>
-    <h1>Добро пожаловать в Secret Chat</h1>
+    <div class="container mt-4">
+        <h1>Secret Chat</h1>
 
-    <!-- Кнопка выхода -->
-    <button id="logout-button">Выйти</button>
+        <a href="/messenger/lobby" class="btn btn-danger mb-3">Выйти</a>
 
-    <!-- Отображение ошибок -->
-    <div id="chat-message">
-        {{if .error}}
-            <p style="color: red;">{{.error}}</p>
-        {{end}}
+        <div id="chat-message">
+            {{if .error}}
+                <div class="alert alert-danger">{{.error}}</div>
+            {{end}}
+        </div>
+
+        <h2>Отправить сообщение</h2>
+        <div class="input-group mb-3">
+            <input type="text" id="message" class="form-control" placeholder="Введите сообщение" aria-label="Message" required>
+            <div class="input-group-append">
+                <button class="btn btn-primary" id="send-message-button" type="button">Отправить</button>
+            </div>
+        </div>
+
+        <h2>Загрузить файл</h2>
+        <form id="file-upload-form" enctype="multipart/form-data">
+            <div class="input-group mb-3">
+                <input type="file" id="file-input" class="form-control" name="file" aria-label="Upload File" required>
+                <div class="input-group-append">
+                    <button class="btn btn-success" id="upload-file-button" type="submit">Загрузить</button>
+                </div>
+            </div>
+        </form>
+
+        <h2>Сообщения</h2>
+        <div id="messages" class="border p-3" style="height: 400px; overflow-y: scroll;">
+            {{if .messages}}
+                {{range .messages}}
+                    <div class="message mb-2">
+                        <strong>{{.SenderId}}</strong>: 
+                        <span>{{.EncryptedMessage}}</span> 
+                        <span class="text-muted" style="font-size: 0.8em;">{{.CreatedAt}}</span>
+                    </div>
+                {{end}}
+            {{else}}
+                <p>Нет сообщений в этой комнате.</p>
+            {{end}}
+        </div>
     </div>
 
-    <!-- Форма создания комнаты -->
-    <h2>Создать чат-комнату</h2>
-    <form id="create-chat-form" action="/chats/create_chat" method="post">
-        <label for="algorithm">Алгоритм:</label>
-        <select name="algorithm" id="algorithm" required>
-            <option value="loki97">Loki97</option>
-            <option value="rc5">RC5</option>
-        </select><br>
-
-        <label for="mode">Режим:</label>
-        <select name="mode" id="mode" required>
-            <option value="ECB">ECB</option>
-            <option value="CBC">CBC</option>
-            <option value="CFB">CFB</option>
-            <option value="OFB">OFB</option>
-            <option value="CTR">CTR</option>
-            <option value="RandomDelta">Random Delta</option>
-        </select><br>
-
-        <label for="padding">Набивка:</label>
-        <select name="padding" id="padding" required>
-            <option value="Zeros">Zeros</option>
-            <option value="ANSIX923">ANSIX923</option>
-            <option value="PKCS7">PKCS7</option>
-            <option value="ISO10126">ISO10126</option>
-        </select><br>
-
-        <button type="submit">Создать комнату</button>
-    </form>
-
-    <!-- Форма присоединения к комнате -->
-    <h2>Присоединиться к чат-комнате</h2>
-    <form id="join-chat-form" action="/chats/join_chat" method="post">
-        <label for="room_id">ID комнаты:</label>
-        <input type="text" name="room_id" id="room_id" required><br>
-        <button type="submit">Присоединиться</button>
-    </form>
-
-    <!-- Поле для отправки сообщений через WebSocket -->
-    <h2>Отправить сообщение</h2>
-    <input type="text" id="message" placeholder="Введите сообщение" required>
-    <button id="send-message-button">Отправить</button>
-
-    <!-- Раздел для отображения сообщений -->
-    <div id="messages">
-        <!-- Сообщения будут добавляться здесь -->
-    </div>
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
